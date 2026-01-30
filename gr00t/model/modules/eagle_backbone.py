@@ -44,7 +44,17 @@ class EagleBackbone(torch.nn.Module):
             assert load_bf16, "nvidia/Eagle-Block2A-2B-v2 requires bfloat16 by default"
             eagle_path = os.path.join(os.path.dirname(__file__), "nvidia", "Eagle-Block2A-2B-v2")
             config = AutoConfig.from_pretrained(eagle_path, trust_remote_code=True)
-            self.model = AutoModel.from_config(config, trust_remote_code=True)
+            # Some Eagle/Qwen variants assert that the text config has flash-attn explicitly selected.
+            # Newer transformers versions may use `_attn_implementation_internal` instead of
+            # `_attn_implementation`, and may not populate these fields when instantiating from config.
+            if use_flash_attention and hasattr(config, "text_config") and config.text_config is not None:
+                if getattr(config.text_config, "_attn_implementation", None) is None:
+                    setattr(config.text_config, "_attn_implementation", "flash_attention_2")
+                if getattr(config.text_config, "_attn_implementation_internal", None) is None:
+                    setattr(config.text_config, "_attn_implementation_internal", "flash_attention_2")
+
+            # Pass through the explicit attention implementation / dtype as well.
+            self.model = AutoModel.from_config(config, trust_remote_code=True, **extra_kwargs)
         else:
             raise ValueError(f"Model {model_name} not supported")
 
