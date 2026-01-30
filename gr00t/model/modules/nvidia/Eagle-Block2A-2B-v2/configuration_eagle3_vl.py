@@ -71,6 +71,9 @@ class Eagle3_VLConfig(PretrainedConfig):
         self.loss_version = loss_version
         self.tie_word_embeddings = self.text_config.tie_word_embeddings
         self.image_token_index = image_token_index
+        # Some transformers model init paths expect `initializer_range` on the top-level config.
+        # Prefer the underlying text config's initializer_range if present, otherwise fall back to 0.02.
+        self.initializer_range = getattr(self.text_config, "initializer_range", 0.02)
 
     def to_dict(self):
         """

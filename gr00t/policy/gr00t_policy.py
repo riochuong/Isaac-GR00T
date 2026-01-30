@@ -85,7 +85,10 @@ class Gr00tPolicy(BasePolicy):
         self.model = model
 
         # Load the processor for input/output transformation
-        self.processor: BaseProcessor = AutoProcessor.from_pretrained(model_dir)
+        # (silences tokenizer regex warning for some tokenizer variants)
+        self.processor: BaseProcessor = AutoProcessor.from_pretrained(
+            model_dir, fix_mistral_regex=True
+        )
         self.processor.eval()
 
         # Store embodiment-specific configurations

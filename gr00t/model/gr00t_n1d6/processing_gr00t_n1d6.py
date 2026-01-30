@@ -50,6 +50,10 @@ def build_processor(model_name: str, transformers_loading_kwargs: dict) -> Proce
     eagle_path = os.path.join(
         os.path.dirname(__file__), "..", "modules", "nvidia", "Eagle-Block2A-2B-v2"
     )
+    # Transformers warns about an incorrect regex for some tokenizers unless this flag is set.
+    # Safe no-op for tokenizers that don't use it.
+    transformers_loading_kwargs = dict(transformers_loading_kwargs or {})
+    transformers_loading_kwargs.setdefault("fix_mistral_regex", True)
     return AutoProcessor.from_pretrained(eagle_path, **transformers_loading_kwargs)
 
 
