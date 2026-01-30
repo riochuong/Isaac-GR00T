@@ -38,6 +38,10 @@ from lerobot.robots import (  # noqa: F401
     so100_follower,
     so101_follower,
 )
+# draccus only exposes `--robot.type` choices for RobotConfig subclasses that have been
+# imported (and thus registered) in the current process. Ensure SO follower configs
+# are registered so `--robot.type=so101_follower` works in this script.
+from lerobot.robots.so_follower import config_so_follower  # noqa: F401
 from lerobot.utils.utils import init_logging, log_say
 import numpy as np
 
