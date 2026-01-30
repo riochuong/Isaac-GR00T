@@ -278,14 +278,14 @@ class Eagle3_VLImageProcessorFast(BaseImageProcessorFast):
         self._validate_preprocess_kwargs(**kwargs)
 
         # torch resize uses interpolation instead of resample
-        resample = kwargs.pop("resample")
+        resample = kwargs.pop("resample", self.resample)
         kwargs["interpolation"] = (
             pil_torch_interpolation_mapping[resample] if isinstance(resample, (PILImageResampling, int)) else resample
         )
 
         # Pop kwargs that are not needed in _preprocess
-        kwargs.pop("default_to_square")
-        kwargs.pop("data_format")
+        kwargs.pop("default_to_square", None)
+        kwargs.pop("data_format", None)
         if images is not None:
             return self._preprocess(images, **kwargs)
         elif videos is not None:
