@@ -121,28 +121,67 @@ class Gr00tN1d6Pipeline(ModelPipeline):
     def _create_dataset(self, save_cfg_dir: Path):
         """Create appropriate dataset based on task and mode."""
 
+        # Keep processor/model dimensions consistent with the actually loaded checkpoint.
+        # The HF checkpoint may override defaults like `max_state_dim` / `max_action_dim`.
+        model_cfg = getattr(getattr(self, "model", None), "config", None)
+        max_state_dim = getattr(model_cfg, "max_state_dim", self.model_config.max_state_dim)
+        max_action_dim = getattr(model_cfg, "max_action_dim", self.model_config.max_action_dim)
+
         if self.config.training.start_from_checkpoint is not None:
-            processor = AutoProcessor.from_pretrained(
-                self.config.training.start_from_checkpoint,
-                # Overrides
-                modality_configs=self.config.data.modality_configs,
-                image_crop_size=self.model_config.image_crop_size,
-                image_target_size=self.model_config.image_target_size,
-                random_rotation_angle=self.model_config.random_rotation_angle,
-                color_jitter_params=self.model_config.color_jitter_params,
-                model_name=self.model_config.model_name,
-                model_type=self.model_config.backbone_model_type,
-                formalize_language=self.model_config.formalize_language,
-                apply_sincos_state_encoding=self.model_config.apply_sincos_state_encoding,
-                max_action_horizon=self.model_config.action_horizon,
-                use_albumentations=self.model_config.use_albumentations_transforms,
-                shortest_image_edge=self.model_config.shortest_image_edge,
-                crop_fraction=self.model_config.crop_fraction,
-                transformers_loading_kwargs=self.transformers_loading_kwargs,
-                use_alternate_vl_dit=self.model_config.use_alternate_vl_dit,
-                use_relative_action=self.model_config.use_relative_action,
-                **self.transformers_loading_kwargs,
-            )
+            # Prefer loading a processor from the checkpoint (if provided by the repo),
+            # but fall back to the local GR00T processor when the hub repo doesn't ship
+            # processor/tokenizer/image-processor files (common for model-only repos).
+            try:
+                processor = AutoProcessor.from_pretrained(
+                    self.config.training.start_from_checkpoint,
+                    # Overrides
+                    modality_configs=self.config.data.modality_configs,
+                    image_crop_size=self.model_config.image_crop_size,
+                    image_target_size=self.model_config.image_target_size,
+                    random_rotation_angle=self.model_config.random_rotation_angle,
+                    color_jitter_params=self.model_config.color_jitter_params,
+                    model_name=self.model_config.model_name,
+                    model_type=self.model_config.backbone_model_type,
+                    formalize_language=self.model_config.formalize_language,
+                    max_state_dim=max_state_dim,
+                    max_action_dim=max_action_dim,
+                    apply_sincos_state_encoding=self.model_config.apply_sincos_state_encoding,
+                    max_action_horizon=self.model_config.action_horizon,
+                    use_albumentations=self.model_config.use_albumentations_transforms,
+                    shortest_image_edge=self.model_config.shortest_image_edge,
+                    crop_fraction=self.model_config.crop_fraction,
+                    transformers_loading_kwargs=self.transformers_loading_kwargs,
+                    use_alternate_vl_dit=self.model_config.use_alternate_vl_dit,
+                    use_relative_action=self.model_config.use_relative_action,
+                    **self.transformers_loading_kwargs,
+                )
+            except ValueError as e:
+                logging.warning(
+                    "Could not load processor from checkpoint "
+                    f"{self.config.training.start_from_checkpoint!r}: {e}. "
+                    "Falling back to local Gr00tN1d6Processor."
+                )
+                processor = self.processor_class(
+                    modality_configs=self.config.data.modality_configs,
+                    statistics=self._get_statistics(),  # computed later if None
+                    embodiment_id_mapping=self._get_embodiment_id_mapping(),
+                    image_crop_size=self.model_config.image_crop_size,
+                    image_target_size=self.model_config.image_target_size,
+                    random_rotation_angle=self.model_config.random_rotation_angle,
+                    color_jitter_params=self.model_config.color_jitter_params,
+                    model_name=self.model_config.model_name,
+                    model_type=self.model_config.backbone_model_type,
+                    formalize_language=self.model_config.formalize_language,
+                    max_state_dim=max_state_dim,
+                    max_action_dim=max_action_dim,
+                    apply_sincos_state_encoding=self.model_config.apply_sincos_state_encoding,
+                    max_action_horizon=self.model_config.action_horizon,
+                    use_albumentations=self.model_config.use_albumentations_transforms,
+                    shortest_image_edge=self.model_config.shortest_image_edge,
+                    crop_fraction=self.model_config.crop_fraction,
+                    use_relative_action=self.model_config.use_relative_action,
+                    transformers_loading_kwargs=self.transformers_loading_kwargs,
+                )
         else:
             processor = self.processor_class(
                 modality_configs=self.config.data.modality_configs,
@@ -155,8 +194,8 @@ class Gr00tN1d6Pipeline(ModelPipeline):
                 model_name=self.model_config.model_name,
                 model_type=self.model_config.backbone_model_type,
                 formalize_language=self.model_config.formalize_language,
-                max_state_dim=self.model_config.max_state_dim,
-                max_action_dim=self.model_config.max_action_dim,
+                max_state_dim=max_state_dim,
+                max_action_dim=max_action_dim,
                 apply_sincos_state_encoding=self.model_config.apply_sincos_state_encoding,
                 max_action_horizon=self.model_config.action_horizon,
                 use_albumentations=self.model_config.use_albumentations_transforms,

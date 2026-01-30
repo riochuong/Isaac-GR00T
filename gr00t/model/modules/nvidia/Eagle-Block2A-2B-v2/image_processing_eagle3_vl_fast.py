@@ -9,29 +9,53 @@ from typing import List, Optional, Union
 
 from transformers.image_processing_utils import BatchFeature, get_patch_output_size, select_best_resolution
 from transformers.image_processing_utils_fast import (
-    BASE_IMAGE_PROCESSOR_FAST_DOCSTRING,
-    BASE_IMAGE_PROCESSOR_FAST_DOCSTRING_PREPROCESS,
     BaseImageProcessorFast,
     DefaultFastImageProcessorKwargs,
     divide_to_patches,
     group_images_by_shape,
     reorder_images,
 )
+
+# Some transformers builds/packaging variants may not expose these docstring constants.
+# They are only used for documentation via decorators, so empty-string fallbacks are safe.
+try:
+    from transformers.image_processing_utils_fast import (
+        BASE_IMAGE_PROCESSOR_FAST_DOCSTRING,
+        BASE_IMAGE_PROCESSOR_FAST_DOCSTRING_PREPROCESS,
+    )
+except Exception:  # pragma: no cover
+    BASE_IMAGE_PROCESSOR_FAST_DOCSTRING = ""
+    BASE_IMAGE_PROCESSOR_FAST_DOCSTRING_PREPROCESS = ""
 from transformers.image_utils import (
     OPENAI_CLIP_MEAN,
     OPENAI_CLIP_STD,
-    IMAGENET_STANDARD_MEAN, # 0.5, 0.5, 0.5
-    IMAGENET_STANDARD_STD, # 0.5, 0.5, 0.5
+    IMAGENET_STANDARD_MEAN,  # 0.5, 0.5, 0.5
+    IMAGENET_STANDARD_STD,  # 0.5, 0.5, 0.5
     ChannelDimension,
     ImageInput,
-    VideoInput,
     PILImageResampling,
     SizeDict,
     get_image_size,
     make_flat_list_of_images,
-    make_batched_videos,
-    validate_kwargs
+    validate_kwargs,
 )
+
+# Some transformers builds don't expose `make_batched_videos` from `transformers.image_utils`.
+# It's only needed when `videos` are passed; for image-only usage we can provide a minimal fallback.
+try:
+    from transformers.image_utils import make_batched_videos  # type: ignore
+except Exception:  # pragma: no cover
+    def make_batched_videos(videos):  # type: ignore
+        # Minimal best-effort fallback: return input unchanged.
+        # If the training run actually uses video inputs here, we'll raise a clearer error later.
+        return videos
+
+# `VideoInput` is only used for typing, but its location/availability differs across
+# some transformers builds. Make this import robust.
+try:
+    from transformers.image_utils import VideoInput  # type: ignore
+except Exception:  # pragma: no cover
+    from typing import Any as VideoInput  # type: ignore
 from transformers.processing_utils import Unpack
 from transformers.utils import TensorType, add_start_docstrings, is_torch_available, is_torchvision_v2_available
 
@@ -153,13 +177,25 @@ class Eagle3_VLImageProcessorFast(BaseImageProcessorFast):
         image_std: Optional[Union[float, List[float]]],
         do_pad: bool,
         return_tensors: Optional[Union[str, TensorType]],
+        # Newer/alternate transformers call paths may forward extra kwargs to `_preprocess`,
+        # e.g. `disable_grouping`. Accept and ignore for compatibility.
+        disable_grouping: Optional[bool] = None,
+        **_unused_kwargs,
     ) -> BatchFeature:
 
         image_sizes = [get_image_size(image, channel_dim=ChannelDimension.FIRST) for image in images]
 
         # Group images by size for further processing
         # Needed in case do_resize is False, or resize returns images with different sizes
-        grouped_images, grouped_images_index = group_images_by_shape(images)
+        # transformers has changed this helper signature across versions:
+        # - older: group_images_by_shape(images)
+        # - newer: group_images_by_shape(images, disable_grouping=...)
+        try:
+            grouped_images, grouped_images_index = group_images_by_shape(
+                images, disable_grouping=bool(disable_grouping) if disable_grouping is not None else False
+            )
+        except TypeError:
+            grouped_images, grouped_images_index = group_images_by_shape(images)
         processed_images_grouped = {}
         for shape, stacked_images in grouped_images.items():
             # Fused rescale and normalize

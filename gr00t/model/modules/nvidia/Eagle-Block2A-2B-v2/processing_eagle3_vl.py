@@ -41,7 +41,13 @@ import numpy as np
 
 from transformers.feature_extraction_utils import BatchFeature
 from transformers.image_processing_utils import select_best_resolution
-from transformers.image_utils import ImageInput, VideoInput, get_image_size, to_numpy_array
+from transformers.image_utils import ImageInput, get_image_size, to_numpy_array
+# `VideoInput` is only used for typing, but its location/availability differs across
+# some transformers builds. Make this import robust.
+try:
+    from transformers.image_utils import VideoInput  # type: ignore
+except Exception:  # pragma: no cover
+    from typing import Any as VideoInput  # type: ignore
 from transformers.processing_utils import ProcessingKwargs, ProcessorMixin, Unpack
 from transformers.tokenization_utils_base import PreTokenizedInput, TextInput
 from transformers.utils import logging
@@ -894,7 +900,21 @@ class Eagle3_VLProcessor(ProcessorMixin):
             if hasattr(processor, key):
                 setattr(processor, key, kwargs.pop(key))
 
-        kwargs.update(unused_kwargs)
+        # `validate_init_kwargs` return type has varied across some transformers builds.
+        # - expected: dict[str, Any]
+        # - observed: iterable[str] (keys) or iterable[tuple[str, Any]] (pairs)
+        if isinstance(unused_kwargs, dict):
+            kwargs.update(unused_kwargs)
+        elif isinstance(unused_kwargs, (list, tuple, set)):
+            # list/tuple/set of pairs -> dict(...)
+            if all(isinstance(x, (list, tuple)) and len(x) == 2 for x in unused_kwargs):
+                kwargs.update(dict(unused_kwargs))
+            else:
+                # list/set of keys -> nothing to update; keep kwargs as-is
+                pass
+        else:
+            # Unknown type; best-effort: do not update kwargs
+            pass
         logger.info(f"Processor {processor}")
         if return_unused_kwargs:
             return processor, kwargs

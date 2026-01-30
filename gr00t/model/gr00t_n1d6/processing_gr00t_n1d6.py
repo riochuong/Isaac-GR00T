@@ -14,6 +14,7 @@ from gr00t.data.utils import parse_modality_configs, to_json_serializable
 import numpy as np
 from PIL import Image
 import torch
+import torch.nn.functional as F
 import torchvision.transforms.v2 as transforms
 from transformers import AutoProcessor, ProcessorMixin
 from transformers.feature_extraction_utils import BatchFeature
@@ -420,6 +421,26 @@ class Gr00tN1d6Processor(BaseProcessor):
             assert v.ndim == 4, f"{v} is not a 4D tensor"
             assert v.dtype == torch.uint8, f"{v} is not a uint8 tensor"
             assert v.shape[1] == 3, f"{v} is not a 3 channel tensor"
+
+        # Different camera views can yield different spatial sizes after augmentation
+        # (e.g. aspect-ratio-preserving resize). Pad each view to the max H/W so
+        # we can stack views without distorting pixels.
+        max_h = max(int(temporal_stacked_images[v].shape[-2]) for v in image_keys)
+        max_w = max(int(temporal_stacked_images[v].shape[-1]) for v in image_keys)
+        for v in image_keys:
+            tchw = temporal_stacked_images[v]
+            h, w = int(tchw.shape[-2]), int(tchw.shape[-1])
+            if h == max_h and w == max_w:
+                continue
+            pad_h = max_h - h
+            pad_w = max_w - w
+            pad_top = pad_h // 2
+            pad_bottom = pad_h - pad_top
+            pad_left = pad_w // 2
+            pad_right = pad_w - pad_left
+            temporal_stacked_images[v] = F.pad(
+                tchw, (pad_left, pad_right, pad_top, pad_bottom), mode="constant", value=0
+            )
 
         stacked_images = (
             torch.stack([temporal_stacked_images[view] for view in image_keys], dim=1)

@@ -174,14 +174,42 @@ def convert_data(
     logging.info("Converting consolidated parquet files back to per-episode files")
     grouped = _group_episodes_by_data_file(episode_records)
 
-    for (chunk_idx, file_idx), records in tqdm.tqdm(grouped.items(), desc="convert data files"):
-        source_path = root / DEFAULT_DATA_PATH.format(chunk_index=chunk_idx, file_index=file_idx)
-        if not source_path.exists():
-            raise FileNotFoundError(f"Expected source parquet file not found: {source_path}")
+    # Pre-load all existing data files into a cache to handle consolidated v3.0 datasets
+    # where all data might be in a single file despite metadata referencing multiple files
+    data_file_cache: dict[tuple[int, int], pq.Table] = {}
+    
+    # Find all unique chunk indices
+    all_chunk_indices = set(chunk_idx for (chunk_idx, _) in grouped.keys())
+    
+    for chunk_idx in all_chunk_indices:
+        # Find all existing data files for this chunk
+        chunk_dir = root / f"data/chunk-{chunk_idx:03d}"
+        if chunk_dir.exists():
+            existing_files = sorted(chunk_dir.glob("file-*.parquet"))
+            for file_path in existing_files:
+                # Extract file index from filename
+                file_name = file_path.stem  # e.g., "file-000"
+                actual_file_idx = int(file_name.split("-")[1])
+                data_file_cache[(chunk_idx, actual_file_idx)] = pq.read_table(file_path)
+                logging.info(f"Loaded data file: {file_path} ({len(data_file_cache[(chunk_idx, actual_file_idx)])} rows)")
 
-        table = pq.read_table(source_path)
-        records = sorted(records, key=lambda rec: int(rec["dataset_from_index"]))
-        file_offset = int(records[0]["dataset_from_index"])
+    for (chunk_idx, file_idx), records in tqdm.tqdm(grouped.items(), desc="convert data files"):
+        # Try to find the source data - either in the expected file or in file-000 (consolidated)
+        if (chunk_idx, file_idx) in data_file_cache:
+            table = data_file_cache[(chunk_idx, file_idx)]
+            records = sorted(records, key=lambda rec: int(rec["dataset_from_index"]))
+            file_offset = int(records[0]["dataset_from_index"])
+        elif (chunk_idx, 0) in data_file_cache:
+            # Fallback: data is consolidated in file-000
+            table = data_file_cache[(chunk_idx, 0)]
+            records = sorted(records, key=lambda rec: int(rec["dataset_from_index"]))
+            file_offset = 0  # Use absolute indices since all data is in one file
+            logging.info(f"Using consolidated file-000 for chunk {chunk_idx}, file_idx {file_idx}")
+        else:
+            raise FileNotFoundError(
+                f"Expected source parquet file not found for chunk {chunk_idx}, file {file_idx}. "
+                f"Available files: {list(data_file_cache.keys())}"
+            )
 
         for record in records:
             episode_index = int(record["episode_index"])
