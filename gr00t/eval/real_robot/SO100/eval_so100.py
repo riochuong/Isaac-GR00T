@@ -30,6 +30,7 @@ from gr00t.policy.server_client import PolicyClient
 
 # Importing various robot configs ensures CLI autocompletion works
 from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig  # noqa: F401
+from lerobot.cameras.realsense.configuration_realsense import RealSenseCameraConfig  # noqa: F401
 from lerobot.robots import (  # noqa: F401
     Robot,
     RobotConfig,
