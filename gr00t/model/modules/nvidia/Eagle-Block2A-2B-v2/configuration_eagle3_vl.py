@@ -89,6 +89,18 @@ class Eagle3_VLConfig(PretrainedConfig):
         output['downsample_ratio'] = self.downsample_ratio
         output['template'] = self.template
         output['image_token_index'] = self.image_token_index
-        output['_attn_implementation'] = self._attn_implementation
-        output['_attn_implementation_autoset'] = self._attn_implementation_autoset
+        # Transformers has changed internal attention-implementation fields across versions.
+        # Avoid hard-requiring private attributes during config repr/serialization.
+        attn_impl = getattr(self, "_attn_implementation", None)
+        if attn_impl is None:
+            attn_impl = getattr(self, "_attn_implementation_internal", None)
+        if attn_impl is not None:
+            output["_attn_implementation"] = attn_impl
+
+        attn_autoset = getattr(self, "_attn_implementation_autoset", None)
+        if attn_autoset is None:
+            # Some versions use a different internal name; if present, serialize it under the legacy key
+            attn_autoset = getattr(self, "_attn_implementation_autoset_internal", None)
+        if attn_autoset is not None:
+            output["_attn_implementation_autoset"] = attn_autoset
         return output
