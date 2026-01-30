@@ -6,6 +6,7 @@
 
 # copy from https://github.com/huggingface/transformers/blob/main/src/transformers/models/llava_onevision/image_processing_llava_onevision_fast.py
 from typing import List, Optional, Union
+import numpy as np
 
 from transformers.image_processing_utils import BatchFeature, get_patch_output_size, select_best_resolution
 from transformers.image_processing_utils_fast import (
@@ -161,6 +162,42 @@ class Eagle3_VLImageProcessorFast(BaseImageProcessorFast):
             `ImageInput`: The images with a valid nesting.
         """
         return make_flat_list_of_images(images)
+
+    # Some transformers versions call `_prepare_input_images` on fast processors. Provide a minimal
+    # implementation that supports PIL/numpy/torch inputs and returns a flat list of CHW tensors.
+    def _prepare_input_images(
+        self,
+        images: ImageInput,
+        do_convert_rgb: bool = True,
+        input_data_format=None,
+        device=None,
+    ) -> List["torch.Tensor"]:
+        flat = make_flat_list_of_images(images)
+        out: List["torch.Tensor"] = []
+        for img in flat:
+            if isinstance(img, torch.Tensor):
+                t = img
+                # Accept CHW or HWC
+                if t.ndim == 3 and t.shape[0] in (1, 3):
+                    pass
+                elif t.ndim == 3 and t.shape[-1] in (1, 3):
+                    t = t.permute(2, 0, 1)
+                else:
+                    raise ValueError(f"Unsupported torch image tensor shape: {tuple(t.shape)}")
+                out.append(t.to(device) if device is not None else t)
+                continue
+
+            # PIL.Image or numpy array-like
+            if hasattr(img, "convert") and do_convert_rgb:
+                img = img.convert("RGB")
+            arr = np.asarray(img)
+            if arr.ndim == 2:
+                arr = np.stack([arr, arr, arr], axis=-1)
+            if arr.ndim != 3 or arr.shape[-1] not in (1, 3):
+                raise ValueError(f"Unsupported image array shape: {arr.shape}")
+            t = torch.from_numpy(arr).permute(2, 0, 1)
+            out.append(t.to(device) if device is not None else t)
+        return out
 
     def _preprocess(
         self,
