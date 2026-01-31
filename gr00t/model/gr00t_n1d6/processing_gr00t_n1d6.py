@@ -108,18 +108,24 @@ class Gr00tN1d6Processor(BaseProcessor):
     data_collator_class = Gr00tN1d6DataCollator
 
     @staticmethod
-    def _maybe_left_crop_to_640x480(img: Image.Image) -> Image.Image:
+    def _maybe_left_crop_to_640x480(img: np.ndarray) -> np.ndarray:
         """
         Deterministically left-crop images to 640x480 when possible.
 
         This is primarily intended to crop wide front cameras such as 848x480 to 640x480 (4:3),
         so that aspect-ratio-preserving resizing yields consistent shapes across views and avoids
         multi-view padding later.
-        """
-        if not isinstance(img, Image.Image):
-            raise TypeError(f"Expected PIL.Image.Image, got {type(img)}")
 
-        w, h = img.size
+        Args:
+            img: numpy array of shape (H, W, C)
+
+        Returns:
+            Cropped numpy array of shape (480, 640, C) or original if smaller
+        """
+        if not isinstance(img, np.ndarray):
+            raise TypeError(f"Expected np.ndarray, got {type(img)}")
+
+        h, w = img.shape[:2]  # numpy is (H, W, C)
         if w == 640 and h == 480:
             return img
         if w < 640 or h < 480:
@@ -128,7 +134,7 @@ class Gr00tN1d6Processor(BaseProcessor):
         left = 0
         # If height differs, keep a vertical center-crop to 480.
         top = 0 if h == 480 else max((h - 480) // 2, 0)
-        return img.crop((left, top, left + 640, top + 480))
+        return img[top:top + 480, left:left + 640]
 
     def __init__(
         self,
