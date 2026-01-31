@@ -107,6 +107,29 @@ class Gr00tN1d6DataCollator:
 class Gr00tN1d6Processor(BaseProcessor):
     data_collator_class = Gr00tN1d6DataCollator
 
+    @staticmethod
+    def _maybe_left_crop_to_640x480(img: Image.Image) -> Image.Image:
+        """
+        Deterministically left-crop images to 640x480 when possible.
+
+        This is primarily intended to crop wide front cameras such as 848x480 to 640x480 (4:3),
+        so that aspect-ratio-preserving resizing yields consistent shapes across views and avoids
+        multi-view padding later.
+        """
+        if not isinstance(img, Image.Image):
+            raise TypeError(f"Expected PIL.Image.Image, got {type(img)}")
+
+        w, h = img.size
+        if w == 640 and h == 480:
+            return img
+        if w < 640 or h < 480:
+            return img
+
+        left = 0
+        # If height differs, keep a vertical center-crop to 480.
+        top = 0 if h == 480 else max((h - 480) // 2, 0)
+        return img.crop((left, top, left + 640, top + 480))
+
     def __init__(
         self,
         modality_configs: dict[str, dict[str, ModalityConfig]],
@@ -401,9 +424,11 @@ class Gr00tN1d6Processor(BaseProcessor):
             replay = None
             for view in image_keys:
                 assert view in images, f"{view} not in {images}"
+                # Pre-crop (e.g., 848x480 -> 640x480) before any resize/augmentation.
+                cropped_frames = [self._maybe_left_crop_to_640x480(img) for img in images[view]]
                 # Apply transforms with replay for consistency
                 transformed_images, replay = apply_with_replay(
-                    image_transform, images[view], replay
+                    image_transform, cropped_frames, replay
                 )
                 temporal_stacked_images[view] = torch.stack(transformed_images)  # (T, C, H, W)
         else:
@@ -411,7 +436,10 @@ class Gr00tN1d6Processor(BaseProcessor):
             for view in image_keys:
                 assert view in images, f"{view} not in {images}"
                 temporal_stacked_images[view] = torch.stack(
-                    [image_transform(img) for img in images[view]]
+                    [
+                        image_transform(self._maybe_left_crop_to_640x480(img))
+                        for img in images[view]
+                    ]
                 )  # (T, C, H, W)
 
         for k, v in temporal_stacked_images.items():
